@@ -1,0 +1,25 @@
+x-common: &common
+  build: .
+  image: ghcr.io/kireevroi/spotify-tg:latest
+  env_file: .env
+  volumes:
+    - nowplaying-data:/data
+  restart: unless-stopped
+  stop_grace_period: 20s
+  logging:
+    driver: json-file
+    options:
+      max-size: 5m
+      max-file: "2"
+
+services:
+  bio:
+    <<: *common
+    command: ["run", "bio"]
+
+  channel:
+    <<: *common
+    command: ["run", "channel"]
+
+volumes:
+  nowplaying-data:
