@@ -64,7 +64,7 @@ func SaveDefault(path, bio string, log *slog.Logger) error {
 }
 
 func (p *Publisher) Playing(ctx context.Context, t *spotify.Track) error {
-	return p.set(ctx, format.Truncate(format.Template(p.Format, t), p.MaxLen))
+	return p.set(ctx, format.Fit(p.Format, t, p.MaxLen))
 }
 
 func (p *Publisher) Idle(ctx context.Context, _ *spotify.Track) error {

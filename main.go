@@ -277,7 +277,7 @@ func runBio(ctx context.Context, log *slog.Logger) error {
 		}
 		pub := &bio.Publisher{
 			API:         client.API(),
-			Format:      env("BIO_FORMAT", "🎧 {artist} — {title}"),
+			Format:      env("BIO_FORMAT", "🎧 {artist} — {title} {link}"),
 			MaxLen:      envInt("BIO_MAX_LEN", 70),
 			Default:     os.Getenv("BIO_DEFAULT"),
 			DefaultPath: dataPath("bio-default.txt"),

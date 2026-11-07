@@ -8,14 +8,45 @@ import (
 	"github.com/kireevroi/spotify-tg/internal/spotify"
 )
 
-// Template fills {title}, {artist}, {album} and {url} placeholders.
+// Template fills {title}, {artist}, {album}, {url} and {link} placeholders.
 func Template(tpl string, t *spotify.Track) string {
 	return strings.NewReplacer(
 		"{title}", t.Title,
 		"{artist}", t.Artists,
 		"{album}", t.Album,
 		"{url}", t.URL,
+		"{link}", ShortLink(t.URL),
 	).Replace(tpl)
+}
+
+// ShortLink strips the scheme; Telegram still makes it clickable.
+func ShortLink(u string) string {
+	return strings.TrimPrefix(strings.TrimPrefix(u, "https://"), "http://")
+}
+
+// Fit renders tpl within max, cutting the text before a {link}/{url} and keeping the link whole when possible.
+func Fit(tpl string, t *spotify.Track, max int) string {
+	full := Template(tpl, t)
+	if max <= 0 || utf16Len(full) <= max {
+		return full
+	}
+	ph, link := "{link}", ShortLink(t.URL)
+	i := strings.Index(tpl, ph)
+	if i < 0 {
+		ph, link = "{url}", t.URL
+		i = strings.Index(tpl, ph)
+	}
+	if i < 0 || link == "" {
+		return Truncate(full, max)
+	}
+	pre := Template(tpl[:i], t)
+	post := Template(tpl[i+len(ph):], t)
+	room := max - utf16Len(link) - utf16Len(post) - 1
+	if room < 12 {
+		noLink := strings.Join(strings.Fields(strings.Replace(tpl, ph, "", 1)), " ")
+		return Truncate(Template(noLink, t), max)
+	}
+	return Truncate(strings.TrimRight(pre, " "), room) + " " + link + post
 }
 
 // Truncate cuts s to max UTF-16 code units, ending with an ellipsis when cut.

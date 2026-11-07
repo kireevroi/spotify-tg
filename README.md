@@ -51,7 +51,7 @@ On a headless server the redirect page will fail to load in your browser, that's
 | `MIN_PROGRESS` | `10s` | publish only after this much of a track played, filters skips |
 | `IDLE_AFTER` | `60s` | paused/stopped this long → idle state |
 | `RESET_ON_EXIT` | `true` | set idle state on container stop |
-| `BIO_FORMAT` | `🎧 {artist} — {title}` | also `{album}`, `{url}` |
+| `BIO_FORMAT` | `🎧 {artist} — {title} {link}` | also `{album}`, `{url}`; `{link}` is the track URL without `https://`, kept whole while artist/title get cut to fit |
 | `BIO_MAX_LEN` | `70` | 140 with Telegram Premium |
 | `CHANNEL_STRATEGY` | `edit` | `edit`: one pinned post edited in place. `repost`: silent new post per track, old one deleted, so it's always the latest post on your profile |
 | `CHANNEL_PIN` | `true` | pin the post in `edit` mode |
