@@ -53,6 +53,7 @@ On a headless server the redirect page will fail to load in your browser, that's
 | `RESET_ON_EXIT` | `true` | set idle state on container stop |
 | `BIO_FORMAT` | `🎧 {artist} — {title} {link}` | also `{album}`, `{url}`; `{link}` is the track URL without `https://`, kept whole while artist/title get cut to fit |
 | `BIO_MAX_LEN` | `70` | 140 with Telegram Premium |
+| `CHANNEL_MESSAGE_ID` | empty | edit this existing post (number from its `t.me/channel/N` link) and never post anything. Text post → text with a Spotify link preview card; photo post → cover swapped. The bot needs the *Edit messages of others* admin right |
 | `CHANNEL_STRATEGY` | `edit` | `edit`: one pinned post edited in place. `repost`: silent new post per track, old one deleted, so it's always the latest post on your profile |
 | `CHANNEL_PIN` | `true` | pin the post in `edit` mode |
 | `CHANNEL_IDLE_TEXT` | `⏸ Not listening right now` | caption when idle, keeps last cover |

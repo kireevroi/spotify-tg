@@ -303,6 +303,7 @@ func runChannel(ctx context.Context, log *slog.Logger) error {
 		Pin:       envBool("CHANNEL_PIN", true),
 		IdleText:  env("CHANNEL_IDLE_TEXT", "⏸ Not listening right now"),
 		StatePath: dataPath("channel-state.json"),
+		FixedID:   envInt("CHANNEL_MESSAGE_ID", 0),
 		HTTP:      &http.Client{Timeout: 20 * time.Second},
 		Log:       log.With("mode", "channel"),
 	}
@@ -312,7 +313,11 @@ func runChannel(ctx context.Context, log *slog.Logger) error {
 	if pub.Strategy != channel.StrategyEdit && pub.Strategy != channel.StrategyRepost {
 		return fmt.Errorf("CHANNEL_STRATEGY must be edit or repost, got %q", pub.Strategy)
 	}
-	pub.Log.Info("started", "channel", pub.Chat, "strategy", pub.Strategy)
+	if pub.FixedID != 0 {
+		pub.Log.Info("started", "channel", pub.Chat, "edit_message_id", pub.FixedID)
+	} else {
+		pub.Log.Info("started", "channel", pub.Chat, "strategy", pub.Strategy)
+	}
 	return loop.Run(ctx, loopConfig(), sp, pub, pub.Log)
 }
 

@@ -31,9 +31,12 @@ type Publisher struct {
 	StatePath string
 	HTTP      *http.Client
 	Log       *slog.Logger
+	// FixedID is an existing post to edit in place; when set nothing is ever posted.
+	FixedID int
 
-	state state
-	ready bool
+	state      state
+	ready      bool
+	fixedMedia bool
 }
 
 type state struct {
@@ -72,6 +75,9 @@ func (p *Publisher) Playing(ctx context.Context, t *spotify.Track) error {
 		return err
 	}
 	caption := format.Caption(t)
+	if p.FixedID != 0 {
+		return p.editFixed(ctx, caption, t.URL, t.CoverURL)
+	}
 
 	if t.CoverURL == "" {
 		if p.state.MessageID == 0 {
@@ -141,10 +147,68 @@ func (p *Publisher) Idle(ctx context.Context, last *spotify.Track) error {
 	if err := p.load(); err != nil {
 		return err
 	}
+	if p.FixedID != 0 {
+		u := ""
+		if last != nil {
+			u = last.URL
+		}
+		return p.editFixed(ctx, format.IdleCaption(p.IdleText, last), u, "")
+	}
 	if p.state.MessageID == 0 {
 		return nil
 	}
 	return p.editCaption(ctx, format.IdleCaption(p.IdleText, last))
+}
+
+// editFixed edits FixedID: text posts get a Spotify link preview, media posts get the cover swapped.
+func (p *Publisher) editFixed(ctx context.Context, text, link, cover string) error {
+	if !p.fixedMedia {
+		params := map[string]any{
+			"chat_id":    p.Chat,
+			"message_id": p.FixedID,
+			"text":       text,
+			"parse_mode": "HTML",
+		}
+		if link != "" {
+			params["link_preview_options"] = map[string]any{"url": link, "prefer_large_media": true, "show_above_text": true}
+		} else {
+			params["link_preview_options"] = map[string]any{"is_disabled": true}
+		}
+		err := p.call(ctx, "editMessageText", params, nil)
+		if err == nil || isNotModified(err) {
+			return nil
+		}
+		if e, ok := err.(*apiError); !ok || !e.has("no text in the message") {
+			return p.fixedErr(err)
+		}
+		p.fixedMedia = true
+	}
+	var err error
+	if cover != "" {
+		err = p.call(ctx, "editMessageMedia", map[string]any{
+			"chat_id":    p.Chat,
+			"message_id": p.FixedID,
+			"media":      map[string]any{"type": "photo", "media": cover, "caption": text, "parse_mode": "HTML"},
+		}, nil)
+	} else {
+		err = p.call(ctx, "editMessageCaption", map[string]any{
+			"chat_id":    p.Chat,
+			"message_id": p.FixedID,
+			"caption":    text,
+			"parse_mode": "HTML",
+		}, nil)
+	}
+	if err == nil || isNotModified(err) {
+		return nil
+	}
+	return p.fixedErr(err)
+}
+
+func (p *Publisher) fixedErr(err error) error {
+	if isGone(err) {
+		return fmt.Errorf("can't edit post %d (deleted, or bot lacks the 'Edit messages of others' admin right): %w", p.FixedID, err)
+	}
+	return err
 }
 
 func (p *Publisher) editCaption(ctx context.Context, caption string) error {

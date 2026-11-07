@@ -82,3 +82,39 @@ func TestEditFlow(t *testing.T) {
 		t.Fatalf("state not persisted: %+v %v", p2.state, err)
 	}
 }
+
+func TestFixedNeverPosts(t *testing.T) {
+	var calls []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		method := r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:]
+		calls = append(calls, method)
+		if method == "editMessageText" {
+			io.WriteString(w, `{"ok":false,"error_code":400,"description":"Bad Request: there is no text in the message to edit"}`)
+			return
+		}
+		io.WriteString(w, `{"ok":true,"result":true}`)
+	}))
+	defer srv.Close()
+	u, _ := url.Parse(srv.URL)
+	p := &Publisher{
+		Token: "t", Chat: "@ch", Strategy: StrategyEdit, Pin: true, IdleText: "idle", FixedID: 2,
+		StatePath: filepath.Join(t.TempDir(), "state.json"),
+		HTTP:      &http.Client{Transport: rewrite{u}},
+		Log:       slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+	tr := &spotify.Track{ID: "1", Title: "T", Artists: "A", CoverURL: "https://i.scdn.co/x", URL: "https://open.spotify.com/track/1"}
+	ctx := context.Background()
+	if err := p.Playing(ctx, tr); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Playing(ctx, tr); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Idle(ctx, tr); err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(calls, ",")
+	if got != "editMessageText,editMessageMedia,editMessageMedia,editMessageCaption" {
+		t.Fatalf("calls %s", got)
+	}
+}
