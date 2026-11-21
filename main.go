@@ -211,8 +211,52 @@ func (a termAuth) Phone(context.Context) (string, error) {
 	return a.prompt("Phone number (international format): ")
 }
 
-func (a termAuth) Code(context.Context, *tg.AuthSentCode) (string, error) {
+func (a termAuth) Code(_ context.Context, sent *tg.AuthSentCode) (string, error) {
+	fmt.Println("Telegram sent the code " + sentCodeWhere(sent.Type) + ".")
+	if next, ok := sent.GetNextType(); ok {
+		fmt.Printf("If it doesn't arrive, Telegram can resend it %s", sentCodeWhereNext(next))
+		if t, ok := sent.GetTimeout(); ok {
+			fmt.Printf(" after %ds (run tg-login again then)", t)
+		}
+		fmt.Println(".")
+	}
 	return a.prompt("Login code from Telegram: ")
+}
+
+func sentCodeWhere(t tg.AuthSentCodeTypeClass) string {
+	switch t := t.(type) {
+	case *tg.AuthSentCodeTypeApp:
+		return `as a message from the "Telegram" service chat in your Telegram app on another logged-in device`
+	case *tg.AuthSentCodeTypeSMS, *tg.AuthSentCodeTypeSMSWord, *tg.AuthSentCodeTypeSMSPhrase, *tg.AuthSentCodeTypeFirebaseSMS:
+		return "by SMS"
+	case *tg.AuthSentCodeTypeCall:
+		return "by a phone call that reads it out"
+	case *tg.AuthSentCodeTypeFlashCall, *tg.AuthSentCodeTypeMissedCall:
+		return "as a missed call; the code is the last digits of the calling number"
+	case *tg.AuthSentCodeTypeEmailCode:
+		return "to your login email " + t.EmailPattern
+	case *tg.AuthSentCodeTypeFragmentSMS:
+		return "via Fragment: " + t.URL
+	case *tg.AuthSentCodeTypeSetUpEmailRequired:
+		return "nowhere yet: Telegram wants a login email set up first; log in once from an official Telegram app to set it, then retry"
+	default:
+		return fmt.Sprintf("via %T", t)
+	}
+}
+
+func sentCodeWhereNext(t tg.AuthCodeTypeClass) string {
+	switch t.(type) {
+	case *tg.AuthCodeTypeSMS:
+		return "by SMS"
+	case *tg.AuthCodeTypeCall:
+		return "by phone call"
+	case *tg.AuthCodeTypeFlashCall, *tg.AuthCodeTypeMissedCall:
+		return "as a missed call"
+	case *tg.AuthCodeTypeFragmentSMS:
+		return "via Fragment"
+	default:
+		return fmt.Sprintf("via %T", t)
+	}
 }
 
 func (a termAuth) Password(context.Context) (string, error) {
