@@ -34,6 +34,17 @@ func (e *floodErr) Error() string { return fmt.Sprintf("telegram FLOOD_WAIT %s",
 
 func (e *floodErr) Backoff() time.Duration { return e.wait }
 
+// authErr means Telegram revoked the session; only a new tg-login fixes it.
+type authErr struct{ err error }
+
+func (e *authErr) Error() string {
+	return "telegram session revoked or expired, run tg-login again: " + e.err.Error()
+}
+
+func (e *authErr) Unwrap() error { return e.err }
+
+func (e *authErr) Fatal() bool { return true }
+
 // Init resolves the default bio and reads the current one.
 func (p *Publisher) Init(ctx context.Context) error {
 	full, err := p.API.UsersGetFullUser(ctx, &tg.InputUserSelf{})
@@ -80,6 +91,9 @@ func (p *Publisher) set(ctx context.Context, about string) error {
 	if _, err := p.API.AccountUpdateProfile(ctx, req); err != nil {
 		if d, ok := tgerr.AsFloodWait(err); ok {
 			return &floodErr{wait: d}
+		}
+		if rpcErr, ok := tgerr.As(err); ok && rpcErr.Code == 401 {
+			return &authErr{err: err}
 		}
 		if tgerr.Is(err, "ABOUT_TOO_LONG") {
 			return fmt.Errorf("bio too long for this account, lower BIO_MAX_LEN: %w", err)

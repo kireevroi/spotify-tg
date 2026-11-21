@@ -18,6 +18,14 @@ type Publisher interface {
 // Backoff is implemented by errors that carry a server-requested wait.
 type Backoff interface{ Backoff() time.Duration }
 
+// Fatal is implemented by errors that retrying cannot fix, such as a revoked session.
+type Fatal interface{ Fatal() bool }
+
+func isFatal(err error) bool {
+	var f Fatal
+	return errors.As(err, &f) && f.Fatal()
+}
+
 type Config struct {
 	PollInterval time.Duration
 	MinProgress  time.Duration
@@ -36,10 +44,11 @@ func Run(ctx context.Context, cfg Config, src Source, pub Publisher, log *slog.L
 		idleSince time.Time
 		last      *spotify.Track
 		wait      time.Duration
+		stopped   bool
 	)
 
 	defer func() {
-		if !cfg.ResetOnExit || idle {
+		if !cfg.ResetOnExit || idle || stopped {
 			return
 		}
 		c, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -78,6 +87,10 @@ func Run(ctx context.Context, cfg Config, src Source, pub Publisher, log *slog.L
 				continue
 			}
 			if err := pub.Playing(ctx, pb.Track); err != nil {
+				if isFatal(err) {
+					stopped = true
+					return err
+				}
 				wait = backoff(err, wait)
 				log.Warn("publish failed", "err", err, "retry_in", wait)
 				continue
@@ -97,6 +110,10 @@ func Run(ctx context.Context, cfg Config, src Source, pub Publisher, log *slog.L
 			continue
 		}
 		if err := pub.Idle(ctx, last); err != nil {
+			if isFatal(err) {
+				stopped = true
+				return err
+			}
 			wait = backoff(err, wait)
 			log.Warn("idle publish failed", "err", err, "retry_in", wait)
 			continue

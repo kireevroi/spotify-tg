@@ -77,3 +77,28 @@ func TestRun(t *testing.T) {
 		}
 	}
 }
+
+type fatalErr struct{}
+
+func (fatalErr) Error() string { return "session revoked" }
+func (fatalErr) Fatal() bool   { return true }
+
+type failingPub struct{ calls int }
+
+func (f *failingPub) Playing(context.Context, *spotify.Track) error { f.calls++; return fatalErr{} }
+func (f *failingPub) Idle(context.Context, *spotify.Track) error    { f.calls++; return fatalErr{} }
+
+func TestRunStopsOnFatal(t *testing.T) {
+	src := &fakeSource{steps: []spotify.Playback{playing("a", 15000)}}
+	pub := &failingPub{}
+	cfg := Config{PollInterval: time.Millisecond, MinProgress: 10 * time.Second, IdleAfter: time.Hour, ResetOnExit: true}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	err := Run(ctx, cfg, src, pub, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if _, ok := err.(fatalErr); !ok {
+		t.Fatalf("Run returned %v, want fatalErr", err)
+	}
+	if pub.calls != 1 {
+		t.Fatalf("publisher called %d times, want 1 (no retries, no reset on exit)", pub.calls)
+	}
+}
