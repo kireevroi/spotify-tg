@@ -32,7 +32,8 @@ docker compose pull    # or: docker compose build
 # one-time Spotify login: open the printed URL, approve, then paste the URL you got redirected to
 docker compose run --rm -p 8888:8888 channel spotify-auth
 
-# one-time Telegram login for bio mode: phone, code, 2FA password
+# one-time Telegram login for bio mode: scan the QR in Telegram (Settings → Devices → Link Desktop Device), then 2FA password
+# (add --code to log in with phone number + login code instead)
 docker compose run --rm bio tg-login
 
 docker compose up -d

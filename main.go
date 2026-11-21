@@ -20,7 +20,10 @@ import (
 	"github.com/gotd/td/session"
 	"github.com/gotd/td/telegram"
 	"github.com/gotd/td/telegram/auth"
+	"github.com/gotd/td/telegram/auth/qrlogin"
 	"github.com/gotd/td/tg"
+	"github.com/gotd/td/tgerr"
+	"rsc.io/qr"
 
 	"github.com/kireevroi/spotify-tg/internal/bio"
 	"github.com/kireevroi/spotify-tg/internal/channel"
@@ -33,7 +36,8 @@ const usage = `usage: nowplaying <command>
 
 commands:
   spotify-auth   one-time Spotify login, stores a refresh token in $DATA_DIR
-  tg-login       one-time Telegram user login for bio mode, stores a session in $DATA_DIR
+  tg-login       one-time Telegram user login for bio mode (scan a QR code), stores a session in $DATA_DIR
+  tg-login --code  same, but with phone number + login code instead of QR
   run bio        keep your Telegram bio in sync with Spotify
   run channel    keep a channel post in sync with Spotify`
 
@@ -52,8 +56,8 @@ func main() {
 	switch {
 	case args[0] == "spotify-auth":
 		err = spotifyAuth(ctx, log)
-	case args[0] == "tg-login":
-		err = tgLogin(ctx, log)
+	case args[0] == "tg-login" && (len(args) == 1 || len(args) == 2 && args[1] == "--code"):
+		err = tgLogin(ctx, log, len(args) == 2)
 	case args[0] == "run" && len(args) == 2 && args[1] == "bio":
 		err = runBio(ctx, log)
 	case args[0] == "run" && len(args) == 2 && args[1] == "channel":
@@ -182,7 +186,7 @@ func codeFromQuery(q url.Values, state string) (string, error) {
 	return q.Get("code"), nil
 }
 
-func tgClient() (*telegram.Client, error) {
+func tgClient(updates telegram.UpdateHandler) (*telegram.Client, error) {
 	id, err := strconv.Atoi(os.Getenv("TG_API_ID"))
 	if err != nil || id == 0 {
 		return nil, errors.New("TG_API_ID is required (from my.telegram.org)")
@@ -193,6 +197,7 @@ func tgClient() (*telegram.Client, error) {
 	}
 	return telegram.NewClient(id, hash, telegram.Options{
 		SessionStorage: &session.FileStorage{Path: dataPath("tg-session.json")},
+		UpdateHandler:  updates,
 	}), nil
 }
 
@@ -271,14 +276,21 @@ func (termAuth) SignUp(context.Context) (auth.UserInfo, error) {
 	return auth.UserInfo{}, errors.New("this phone has no Telegram account")
 }
 
-func tgLogin(ctx context.Context, log *slog.Logger) error {
-	client, err := tgClient()
+func tgLogin(ctx context.Context, log *slog.Logger, withCode bool) error {
+	updates := tg.NewUpdateDispatcher()
+	loggedIn := qrlogin.OnLoginToken(updates)
+	client, err := tgClient(updates)
 	if err != nil {
 		return err
 	}
 	return client.Run(ctx, func(ctx context.Context) error {
-		flow := auth.NewFlow(termAuth{in: bufio.NewReader(os.Stdin)}, auth.SendCodeOptions{})
-		if err := client.Auth().IfNecessary(ctx, flow); err != nil {
+		ta := termAuth{in: bufio.NewReader(os.Stdin)}
+		if withCode {
+			flow := auth.NewFlow(ta, auth.SendCodeOptions{})
+			if err := client.Auth().IfNecessary(ctx, flow); err != nil {
+				return err
+			}
+		} else if err := qrLogin(ctx, client, loggedIn, ta); err != nil {
 			return err
 		}
 		self, err := client.Self(ctx)
@@ -301,12 +313,65 @@ func tgLogin(ctx context.Context, log *slog.Logger) error {
 	})
 }
 
+// qrLogin logs in by scanning a QR code from an already logged-in Telegram app,
+// which avoids login codes that Telegram sometimes never delivers.
+func qrLogin(ctx context.Context, client *telegram.Client, loggedIn qrlogin.LoggedIn, ta termAuth) error {
+	status, err := client.Auth().Status(ctx)
+	if err != nil {
+		return err
+	}
+	if status.Authorized {
+		return nil
+	}
+	_, err = client.QR().Auth(ctx, loggedIn, func(_ context.Context, t qrlogin.Token) error {
+		code, err := qr.Encode(t.URL(), qr.L)
+		if err != nil {
+			return err
+		}
+		fmt.Print("\n" + renderQR(code))
+		fmt.Println("In the Telegram app on your phone: Settings → Devices → Link Desktop Device, then scan this.")
+		fmt.Printf("It refreshes on its own; this one expires at %s.\n\n", t.Expires().Local().Format("15:04:05"))
+		return nil
+	})
+	if tgerr.Is(err, "SESSION_PASSWORD_NEEDED") {
+		pass, perr := ta.Password(ctx)
+		if perr != nil {
+			return perr
+		}
+		_, err = client.Auth().Password(ctx, pass)
+	}
+	return err
+}
+
+// renderQR draws the code with half blocks in explicit black on white, so it scans on dark terminals too.
+func renderQR(c *qr.Code) string {
+	const quiet = 2
+	black := func(x, y int) bool {
+		return x >= 0 && y >= 0 && x < c.Size && y < c.Size && c.Black(x, y)
+	}
+	var b strings.Builder
+	for y := -quiet; y < c.Size+quiet; y += 2 {
+		for x := -quiet; x < c.Size+quiet; x++ {
+			fg, bg := "97", "107"
+			if black(x, y) {
+				fg = "30"
+			}
+			if black(x, y+1) {
+				bg = "40"
+			}
+			b.WriteString("\x1b[" + fg + ";" + bg + "m▀")
+		}
+		b.WriteString("\x1b[0m\n")
+	}
+	return b.String()
+}
+
 func runBio(ctx context.Context, log *slog.Logger) error {
 	sp, err := spotifyClient()
 	if err != nil {
 		return err
 	}
-	client, err := tgClient()
+	client, err := tgClient(nil)
 	if err != nil {
 		return err
 	}
